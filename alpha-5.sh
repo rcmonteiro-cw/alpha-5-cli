@@ -8,6 +8,7 @@ set -e
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SETUP_SCRIPT="$SCRIPT_DIR/setup_feature.sh"
+UPDATE_SCRIPT="$SCRIPT_DIR/update_feature.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -30,6 +31,7 @@ show_help() {
     echo "  help                    Show this help message"
     echo "  add <feature-name>      Create a new feature with the specified name"
     echo "  list                    List all existing features"
+    echo "  update <feature-name>   Update an existing feature (selective sync)"
     echo "  delete <feature-name>   Delete a feature (with confirmation)"
     echo "  version                 Show version information"
     echo ""
@@ -37,7 +39,8 @@ show_help() {
     echo "  alpha-5 help"
     echo "  alpha-5 add my-awesome-feature"
     echo "  alpha-5 list"
-    echo "  alpha-5 delete payment-processing"
+    echo "  alpha-5 update payment-processing"
+    echo "  alpha-5 delete old-feature"
     echo ""
     echo "Configuration:"
     echo "  Features path: $features_path"
@@ -45,13 +48,14 @@ show_help() {
     echo "Description:"
     echo "  - 'add' creates a new feature directory with agents from infinite-lending"
     echo "  - 'list' shows all features in your configured path"
+    echo "  - 'update' syncs an existing feature with latest agents (selective)"
     echo "  - 'delete' removes a feature after confirmation"
     echo ""
 }
 
 # Function to show version
 show_version() {
-    echo "Alpha-5 CLI version 1.1.0"
+    echo "Alpha-5 CLI version 2.0.1"
 }
 
 # Function to create a feature
@@ -123,6 +127,29 @@ list_features() {
         echo -e "${BLUE}Total: $count feature(s)${NC}"
     fi
     echo ""
+}
+
+# Function to update a feature
+update_feature() {
+    local feature_name="$1"
+    
+    if [ -z "$feature_name" ]; then
+        echo -e "${RED}❌ ERROR: Feature name is required${NC}"
+        echo ""
+        echo "Usage: alpha-5 update <feature-name>"
+        echo ""
+        echo "Run 'alpha-5 list' to see all features."
+        exit 1
+    fi
+    
+    # Check if update script exists
+    if [ ! -f "$UPDATE_SCRIPT" ]; then
+        echo -e "${RED}❌ ERROR: Update script not found at $UPDATE_SCRIPT${NC}"
+        exit 1
+    fi
+    
+    # Execute the update script
+    bash "$UPDATE_SCRIPT" "$feature_name"
 }
 
 # Function to delete a feature
@@ -215,6 +242,10 @@ main() {
             ;;
         list|ls)
             list_features
+            ;;
+        update|sync)
+            shift
+            update_feature "$@"
             ;;
         delete|remove|rm)
             shift

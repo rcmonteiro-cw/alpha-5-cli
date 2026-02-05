@@ -66,6 +66,13 @@ if [ -f "$SETUP_SCRIPT" ]; then
     echo -e "${GREEN}✅ Made setup_feature.sh executable${NC}"
 fi
 
+# Make update_feature.sh executable
+UPDATE_SCRIPT="$SCRIPT_DIR/update_feature.sh"
+if [ -f "$UPDATE_SCRIPT" ]; then
+    chmod +x "$UPDATE_SCRIPT"
+    echo -e "${GREEN}✅ Made update_feature.sh executable${NC}"
+fi
+
 # Detect shell configuration file
 SHELL_RC="$HOME/.zshrc"
 if [ ! -f "$SHELL_RC" ]; then

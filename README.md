@@ -45,7 +45,10 @@ alpha-5 add my-awesome-feature
 # 5. List all features
 alpha-5 list
 
-# 6. Get help anytime
+# 6. Update a feature with latest agents
+alpha-5 update my-awesome-feature
+
+# 7. Get help anytime
 alpha-5 help
 ```
 
@@ -179,6 +182,63 @@ alpha-5 add payment-gateway
 📍 Feature location: /path/to/features/payment-gateway
 ```
 
+### 🔄 Update a Feature
+
+Update an existing feature with the latest agents from the repository (selective sync):
+
+```bash
+alpha-5 update <feature-name>
+```
+
+**What gets updated:**
+- ✅ All agent files and directories
+- ✅ All *.md files (README.md, CHANGELOG.md, etc.)
+- ✅ loop.sh
+
+**What gets excluded (preserved in your feature):**
+- ✗ spec/ directory (not overwritten)
+- ✗ IMPLEMENTATION_PLAN.md (preserved)
+
+**Use case:**
+When the infinite-lending repository is updated with new agents or improvements, use this command to sync your feature while preserving your IMPLEMENTATION_PLAN.md and custom spec files.
+
+**Example:**
+```bash
+alpha-5 update payment-gateway
+```
+
+**Output:**
+```
+🔄 Updating feature: payment-gateway
+📦 Cloning infinite-lending repository to /tmp...
+✅ SUCCESS: Cloned infinite-lending repository
+🔄 Updating agents contents (with exclusions)...
+✅ SUCCESS: Updated agents contents
+
+📋 Update summary:
+  ✗ spec/ directory (not updated - preserved)
+  ✗ IMPLEMENTATION_PLAN.md (not updated - preserved)
+  ✓ All other files including *.md and loop.sh (updated)
+
+🧹 Cleaning up temporary files...
+✅ SUCCESS: Cleaned up temporary repository
+
+🎉 Feature update completed successfully!
+📍 Feature location: /path/to/features/payment-gateway
+```
+
+**Aliases:**
+```bash
+alpha-5 update feature-name
+alpha-5 sync feature-name
+```
+
+**Safety:**
+- Existing files are overwritten (except spec/ and IMPLEMENTATION_PLAN.md)
+- Make sure to commit your changes before updating
+- Custom spec files and IMPLEMENTATION_PLAN.md are preserved
+- loop.sh will be updated from the repository
+
 ### 📋 List All Features
 
 View all existing features in your configured features path:
@@ -296,7 +356,21 @@ alpha-5 add notification-system
 alpha-5 add analytics-dashboard
 ```
 
-### Example 3: List and Manage Features
+### Example 3: Update Existing Features
+
+```bash
+# Create a feature
+alpha-5 add payment-gateway
+
+# ... time passes, infinite-lending repo gets updates ...
+
+# Update the feature with latest agents
+alpha-5 update payment-gateway
+
+# Your custom spec/ files and IMPLEMENTATION_PLAN.md are preserved!
+```
+
+### Example 4: List and Manage Features
 
 ```bash
 # List all features
@@ -312,7 +386,7 @@ alpha-5 list
 alpha-5 delete old-prototype
 ```
 
-### Example 4: Check Your Setup
+### Example 5: Check Your Setup
 
 ```bash
 # View help and current configuration
@@ -395,6 +469,7 @@ The installer will detect the existing configuration and ask if you want to upda
 alpha-5-cli/
 ├── alpha-5.sh           # Main CLI wrapper script
 ├── setup_feature.sh     # Feature setup script (creates features)
+├── update_feature.sh    # Feature update script (selective sync)
 ├── install.sh           # Installation script (adds to PATH)
 ├── README.md            # Documentation
 └── features/            # Default features location (if not customized)
@@ -673,6 +748,100 @@ No features found
 
 ---
 
+### Issue: Update Overwrites My Files
+
+**Symptoms:**
+- Files you created in agents/ are being overwritten
+
+**Solutions:**
+
+1. **Understand what update preserves:**
+   ```
+   Preserved:
+   - spec/ directory
+   - IMPLEMENTATION_PLAN.md
+   
+   Updated (overwritten):
+   - All other agent files
+   - All *.md files (README.md, CHANGELOG.md, etc.)
+   - loop.sh
+   ```
+
+2. **Protect your custom files:**
+   ```bash
+   # Option 1: Move custom files to spec/ directory (always preserved)
+   mv $ALPHA5_FEATURES_PATH/feature-name/agents/MY_NOTES.md \
+      $ALPHA5_FEATURES_PATH/feature-name/spec/
+   
+   # Option 2: Backup before update if needed
+   cp $ALPHA5_FEATURES_PATH/feature-name/agents/loop.sh \
+      $ALPHA5_FEATURES_PATH/feature-name/agents/loop.sh.backup
+   ```
+
+3. **Use version control:**
+   ```bash
+   cd $ALPHA5_FEATURES_PATH/feature-name
+   git init
+   git add .
+   git commit -m "Before update"
+   
+   # Now update
+   alpha-5 update feature-name
+   
+   # Review changes
+   git diff
+   ```
+
+---
+
+### Issue: Update Fails - Feature Not Found
+
+**Symptoms:**
+```bash
+❌ ERROR: Feature 'feature-name' does not exist
+```
+
+**Solutions:**
+
+1. **Verify feature exists:**
+   ```bash
+   alpha-5 list
+   ```
+
+2. **Check feature name spelling:**
+   - Feature names are case-sensitive
+   - Make sure there are no typos
+
+3. **Use add instead of update:**
+   ```bash
+   # If feature doesn't exist, create it first
+   alpha-5 add feature-name
+   ```
+
+---
+
+### Issue: Update is Slow
+
+**Symptoms:**
+- Update takes a long time (especially without rsync)
+
+**Solutions:**
+
+1. **Install rsync for faster updates:**
+   ```bash
+   # macOS
+   brew install rsync
+   
+   # Linux (Ubuntu/Debian)
+   sudo apt-get install rsync
+   ```
+
+2. **Be patient:**
+   - Cloning the repository takes time
+   - Copying files without rsync is slower but works
+
+---
+
 ## 🗑️ Uninstallation
 
 To completely remove the Alpha-5 CLI from your system:
@@ -763,6 +932,7 @@ bash --version
 | `alpha-5 help` | Show help and configuration | `alpha-5 help` | `-h`, `--help` |
 | `alpha-5 add <name>` | Create a new feature | `alpha-5 add payment-gateway` | `create` |
 | `alpha-5 list` | List all existing features | `alpha-5 list` | `ls` |
+| `alpha-5 update <name>` | Update feature (selective sync) | `alpha-5 update payment-gateway` | `sync` |
 | `alpha-5 delete <name>` | Delete a feature (with confirmation) | `alpha-5 delete old-feature` | `remove`, `rm` |
 | `alpha-5 version` | Show CLI version | `alpha-5 version` | `-v`, `--version` |
 
@@ -796,6 +966,30 @@ A: The feature will be permanently deleted. However, you can always recreate it 
 
 **Q: Can I rename a feature?**  
 A: The CLI doesn't have a rename command, but you can manually rename the directory: `mv $ALPHA5_FEATURES_PATH/old-name $ALPHA5_FEATURES_PATH/new-name`
+
+**Q: What's the difference between `add` and `update`?**  
+A: `add` creates a new feature from scratch. `update` refreshes an existing feature with the latest agents while preserving your custom spec/ directory and IMPLEMENTATION_PLAN.md file.
+
+**Q: Will `update` overwrite my changes?**  
+A: The update command preserves only:
+- Your spec/ directory
+- IMPLEMENTATION_PLAN.md (your custom implementation plan)
+
+All other files including *.md files (README.md, CHANGELOG.md, etc.) and loop.sh will be updated to match the repository. It's recommended to commit your changes before updating.
+
+**Q: When should I use the `update` command?**  
+A: Use `update` when:
+- The infinite-lending repository has new features or bug fixes
+- You want to sync agent improvements to your existing features
+- You need to update multiple features with the latest code
+
+**Q: Can I update all features at once?**  
+A: Not directly, but you can use a bash loop:
+```bash
+for feature in $(ls $ALPHA5_FEATURES_PATH); do
+  alpha-5 update "$feature"
+done
+```
 
 ---
 
