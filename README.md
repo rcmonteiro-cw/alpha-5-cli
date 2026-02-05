@@ -34,13 +34,19 @@ A powerful command-line tool for managing features in the Alpha-5 project. Quick
 cd /path/to/alpha-5-cli
 
 # 2. Run the installer
-./install.sh
+./install.sh $HOME/my-folder-for-features
 
 # 3. Reload your shell
 source ~/.zshrc
 
 # 4. Create your first feature
 alpha-5 add my-awesome-feature
+
+# 5. List all features
+alpha-5 list
+
+# 6. Get help anytime
+alpha-5 help
 ```
 
 ---
@@ -173,6 +179,84 @@ alpha-5 add payment-gateway
 📍 Feature location: /path/to/features/payment-gateway
 ```
 
+### 📋 List All Features
+
+View all existing features in your configured features path:
+
+```bash
+alpha-5 list
+```
+
+**Output example:**
+```
+📁 Features in: /Users/ricardo/features
+
+✓ payment-gateway
+✓ user-authentication
+✓ notification-system
+⚠ incomplete-feature (missing agents folder)
+
+Total: 4 feature(s)
+```
+
+**Features:**
+- Shows all features in your configured path
+- Indicates which features have the agents folder (✓)
+- Warns about incomplete features (⚠)
+- Displays total count
+
+**Aliases:**
+```bash
+alpha-5 list
+alpha-5 ls    # Short version
+```
+
+### 🗑️ Delete a Feature
+
+Remove a feature with confirmation:
+
+```bash
+alpha-5 delete <feature-name>
+```
+
+**Safety features:**
+- Requires confirmation before deletion
+- Shows feature details (name, location, size)
+- Cannot be undone warning
+- Must type "yes" to confirm
+
+**Example:**
+```bash
+alpha-5 delete old-feature
+```
+
+**Output:**
+```
+⚠️  WARNING: You are about to delete the following feature:
+
+Feature name: old-feature
+Location: /Users/ricardo/features/old-feature
+Size: 2.5M
+
+This action cannot be undone!
+
+Are you sure you want to delete 'old-feature'? (yes/no): yes
+
+Deleting feature 'old-feature'...
+✅ SUCCESS: Feature 'old-feature' has been deleted
+```
+
+**Confirmation options:**
+- Type `yes`, `YES`, or `Yes` to confirm deletion
+- Type anything else to cancel
+
+**Aliases:**
+```bash
+alpha-5 delete feature-name
+alpha-5 remove feature-name
+alpha-5 rm feature-name
+```
+
 ### 🏷️ Show Version
 
 Display the current version of the CLI:
@@ -212,7 +296,23 @@ alpha-5 add notification-system
 alpha-5 add analytics-dashboard
 ```
 
-### Example 3: Check Your Setup
+### Example 3: List and Manage Features
+
+```bash
+# List all features
+alpha-5 list
+
+# Create a new feature
+alpha-5 add reporting-dashboard
+
+# List again to see the new feature
+alpha-5 list
+
+# Delete an old feature
+alpha-5 delete old-prototype
+```
+
+### Example 4: Check Your Setup
 
 ```bash
 # View help and current configuration
@@ -221,7 +321,10 @@ alpha-5 help
 # Check where features are being created
 echo $ALPHA5_FEATURES_PATH
 
-# List all features
+# List all features with alpha-5
+alpha-5 list
+
+# Or use system commands
 ls $ALPHA5_FEATURES_PATH
 ```
 
@@ -498,6 +601,78 @@ $ ./install.sh
 
 ---
 
+### Issue: List Shows "No features found"
+
+**Symptoms:**
+```bash
+$ alpha-5 list
+No features found
+```
+
+**Solutions:**
+
+1. **Verify you've created features:**
+   ```bash
+   # Create a feature first
+   alpha-5 add test-feature
+   
+   # Then list
+   alpha-5 list
+   ```
+
+2. **Check the features path:**
+   ```bash
+   echo $ALPHA5_FEATURES_PATH
+   ls $ALPHA5_FEATURES_PATH
+   ```
+
+3. **Verify features directory exists:**
+   ```bash
+   # If it doesn't exist, create a feature to initialize it
+   alpha-5 add my-first-feature
+   ```
+
+---
+
+### Issue: Cannot Delete Feature
+
+**Symptoms:**
+```bash
+❌ ERROR: Feature 'feature-name' does not exist
+```
+
+**Solutions:**
+
+1. **List all features to see exact names:**
+   ```bash
+   alpha-5 list
+   ```
+
+2. **Check for typos in feature name:**
+   - Feature names are case-sensitive
+   - Make sure there are no extra spaces
+
+3. **Verify feature exists:**
+   ```bash
+   ls $ALPHA5_FEATURES_PATH
+   ```
+
+---
+
+### Issue: Accidental Deletion
+
+**Prevention:**
+- Always double-check the feature name before typing "yes"
+- Use `alpha-5 list` to verify the feature exists before deleting
+- The delete command shows feature details before confirmation
+
+**Recovery:**
+- Deleted features cannot be recovered
+- However, you can recreate them: `alpha-5 add feature-name`
+- This will clone fresh agents from the repository
+
+---
+
 ## 🗑️ Uninstallation
 
 To completely remove the Alpha-5 CLI from your system:
@@ -583,11 +758,13 @@ bash --version
 
 ## 🚀 Commands Reference
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `alpha-5 help` | Show help and configuration | `alpha-5 help` |
-| `alpha-5 add <name>` | Create a new feature | `alpha-5 add payment-gateway` |
-| `alpha-5 version` | Show CLI version | `alpha-5 version` |
+| Command | Description | Example | Aliases |
+|---------|-------------|---------|---------|
+| `alpha-5 help` | Show help and configuration | `alpha-5 help` | `-h`, `--help` |
+| `alpha-5 add <name>` | Create a new feature | `alpha-5 add payment-gateway` | `create` |
+| `alpha-5 list` | List all existing features | `alpha-5 list` | `ls` |
+| `alpha-5 delete <name>` | Delete a feature (with confirmation) | `alpha-5 delete old-feature` | `remove`, `rm` |
+| `alpha-5 version` | Show CLI version | `alpha-5 version` | `-v`, `--version` |
 
 ---
 
@@ -607,6 +784,18 @@ A: Use quotes: `alpha-5 add "my feature name"` or use dashes: `alpha-5 add my-fe
 
 **Q: Can I customize what gets copied?**  
 A: Yes! Edit the `setup_feature.sh` script to customize the repository URL, what folders get copied, or add additional setup steps.
+
+**Q: How do I see all my features?**  
+A: Use `alpha-5 list` to see all features in your configured path, or use `ls $ALPHA5_FEATURES_PATH` for a simple directory listing.
+
+**Q: Can I recover a deleted feature?**  
+A: No, the `delete` command permanently removes the feature directory. There is no undo. Always confirm you're deleting the correct feature before typing "yes".
+
+**Q: What happens if I accidentally type "yes" when deleting?**  
+A: The feature will be permanently deleted. However, you can always recreate it using `alpha-5 add feature-name` and it will clone the agents from the repository again.
+
+**Q: Can I rename a feature?**  
+A: The CLI doesn't have a rename command, but you can manually rename the directory: `mv $ALPHA5_FEATURES_PATH/old-name $ALPHA5_FEATURES_PATH/new-name`
 
 ---
 
