@@ -6,7 +6,7 @@
 |    \__/ |/\| |___ |  \ |___ |___ | \| |__/ |___ |  \ .__/
 ```
 
-A powerful command-line tool for managing features in the Alpha-5 project. Quickly scaffold new features with pre-configured agents from the infinite-lending repository.
+A powerful command-line tool for managing features in the Alpha-5 project. Quickly scaffold new features with configuration files from the infinite-lending repository.
 
 ---
 
@@ -45,10 +45,16 @@ alpha-5 add my-awesome-feature
 # 5. List all features
 alpha-5 list
 
-# 6. Update a feature with latest agents
+# 6. Update a feature with latest configuration
 alpha-5 update my-awesome-feature
 
-# 7. Get help anytime
+# 7. Check git status
+alpha-5 status my-awesome-feature
+
+# 8. Update all features at once
+alpha-5 update-all
+
+# 9. Get help anytime
 alpha-5 help
 ```
 
@@ -102,6 +108,11 @@ source ~/.zshrc
 
 Or simply **restart your terminal**.
 
+**What gets installed:**
+- `alpha-5` command (alias to the CLI)
+- `a5open` function (navigate to feature repositories)
+- Environment variables (`ALPHA5_HOME`, `ALPHA5_FEATURES_PATH`)
+
 ### What Installation Does
 
 The installer will:
@@ -154,11 +165,13 @@ alpha-5 add <feature-name>
 **What happens when you run this command:**
 
 1. 📁 Creates feature directory at `$ALPHA5_FEATURES_PATH/feature-name/`
-2. 📁 Creates agents directory inside the feature
-3. 📦 Clones the `infinite-lending` repository to a temporary location
-4. 📋 Copies all agents contents from the repository
-5. 🧹 Cleans up temporary files
-6. ✅ Displays success message with feature location
+2. 📦 Clones the `infinite-lending` repository inside the feature directory
+3. 🔀 Creates and checks out a new branch `feat/feature-name`
+4. 📁 Creates a workspace folder `feature-name/` inside the repository
+5. 📋 Copies `development.env` from `$HOME/projects/repos/infinite-lending` into the cloned repo
+6. 📋 Copies `.claude/settings.local.json` from `$HOME/projects/repos/infinite-lending` into the cloned repo
+7. ✅ Displays success message with locations
+8. 💡 Shows navigation command to cd into your workspace
 
 **Example:**
 ```bash
@@ -170,37 +183,54 @@ alpha-5 add payment-gateway
 🚀 Setting up feature: payment-gateway
 📁 Creating feature directory...
 ✅ SUCCESS: Created directory /path/to/features/payment-gateway
-📂 Creating agents directory...
-✅ SUCCESS: Created agents directory at /path/to/features/payment-gateway/agents
-📦 Cloning infinite-lending repository to /tmp...
-✅ SUCCESS: Cloned infinite-lending repository
-📋 Copying agents contents...
-✅ SUCCESS: Copied all agents contents
-🧹 Cleaning up temporary files...
-✅ SUCCESS: Cleaned up temporary repository
+📦 Cloning infinite-lending repository into feature directory...
+✅ SUCCESS: Cloned infinite-lending repository to /path/to/features/payment-gateway/infinite-lending
+🔀 Creating and checking out feature branch...
+✅ SUCCESS: Created and checked out branch 'feat/payment-gateway'
+📁 Creating feature folder inside repository...
+✅ SUCCESS: Created folder payment-gateway inside repository
+📋 Copying configuration files from local repo to cloned repo...
+✅ SUCCESS: Copied development.env
+✅ SUCCESS: Copied .claude/settings.local.json
 🎉 Feature setup completed successfully!
 📍 Feature location: /path/to/features/payment-gateway
+📍 Repository location: /path/to/features/payment-gateway/infinite-lending
+📍 Work folder: /path/to/features/payment-gateway/infinite-lending/payment-gateway
+
+💡 To navigate to your feature folder, run:
+   alpha-5 open payment-gateway
+
+Or use the alias:
+   a5open payment-gateway
+```
+
+**Quick navigation after creation:**
+```bash
+# Either of these work:
+alpha-5 open payment-gateway
+a5open payment-gateway
 ```
 
 ### 🔄 Update a Feature
 
-Update an existing feature with the latest agents from the repository (selective sync):
+Update an existing feature with the latest configuration files from your local infinite-lending repository:
 
 ```bash
 alpha-5 update <feature-name>
 ```
 
 **What gets updated:**
-- ✅ All agent files and directories
-- ✅ All *.md files (README.md, CHANGELOG.md, etc.)
-- ✅ loop.sh
+- ✅ `infinite-lending/development.env`
+- ✅ `infinite-lending/.claude/settings.local.json`
 
-**What gets excluded (preserved in your feature):**
-- ✗ spec/ directory (not overwritten)
-- ✗ IMPLEMENTATION_PLAN.md (preserved)
+**Source:**
+Files are copied from `$HOME/projects/repos/infinite-lending`
+
+**Destination:**
+Files are copied into the cloned `infinite-lending` directory inside the feature
 
 **Use case:**
-When the infinite-lending repository is updated with new agents or improvements, use this command to sync your feature while preserving your IMPLEMENTATION_PLAN.md and custom spec files.
+When you've pulled the latest changes to your local infinite-lending repository, use this command to sync your feature's cloned repo with the updated configuration files.
 
 **Example:**
 ```bash
@@ -210,21 +240,17 @@ alpha-5 update payment-gateway
 **Output:**
 ```
 🔄 Updating feature: payment-gateway
-📦 Cloning infinite-lending repository to /tmp...
-✅ SUCCESS: Cloned infinite-lending repository
-🔄 Updating agents contents (with exclusions)...
-✅ SUCCESS: Updated agents contents
+📋 Updating configuration files...
+✅ SUCCESS: Updated development.env
+✅ SUCCESS: Updated .claude/settings.local.json
 
 📋 Update summary:
-  ✗ spec/ directory (not updated - preserved)
-  ✗ IMPLEMENTATION_PLAN.md (not updated - preserved)
-  ✓ All other files including *.md and loop.sh (updated)
-
-🧹 Cleaning up temporary files...
-✅ SUCCESS: Cleaned up temporary repository
+  ✓ development.env (updated)
+  ✓ .claude/settings.local.json (updated)
 
 🎉 Feature update completed successfully!
 📍 Feature location: /path/to/features/payment-gateway
+📍 Repository location: /path/to/features/payment-gateway/infinite-lending
 ```
 
 **Aliases:**
@@ -234,14 +260,12 @@ alpha-5 sync feature-name
 ```
 
 **Safety:**
-- Existing files are overwritten (except spec/ and IMPLEMENTATION_PLAN.md)
-- Make sure to commit your changes before updating
-- Custom spec files and IMPLEMENTATION_PLAN.md are preserved
-- loop.sh will be updated from the repository
+- Configuration files are overwritten with the latest versions
+- Make sure to commit any custom changes before updating
 
 ### 📋 List All Features
 
-View all existing features in your configured features path:
+View all existing features in your configured features path with their sync status:
 
 ```bash
 alpha-5 list
@@ -252,17 +276,22 @@ alpha-5 list
 📁 Features in: /Users/ricardo/features
 
 ✓ payment-gateway
-✓ user-authentication
+🔄 user-authentication (outdated - run update)
 ✓ notification-system
-⚠ incomplete-feature (missing agents folder)
+⚠ reporting-dashboard (missing config files)
 
 Total: 4 feature(s)
 ```
 
+**Status indicators:**
+- ✓ Up to date - all config files match the source repository
+- 🔄 Outdated - config files exist but differ from source (run `alpha-5 update <feature-name>`)
+- ⚠ Missing files - one or more config files are missing
+
 **Features:**
 - Shows all features in your configured path
-- Indicates which features have the agents folder (✓)
-- Warns about incomplete features (⚠)
+- Checks if configuration files are up to date
+- Compares against source repository at `$HOME/projects/repos/infinite-lending`
 - Displays total count
 
 **Aliases:**
@@ -317,6 +346,211 @@ alpha-5 remove feature-name
 alpha-5 rm feature-name
 ```
 
+### 📊 Show Git Status
+
+Display the git status of a feature's repository:
+
+```bash
+alpha-5 status <feature-name>
+```
+
+**What it shows:**
+- Current branch
+- Staged changes
+- Unstaged changes
+- Untracked files
+- Upstream sync status
+
+**Example:**
+```bash
+alpha-5 status payment-gateway
+```
+
+**Output:**
+```
+📊 Git Status for: payment-gateway
+Repository: /Users/ricardo/features/payment-gateway/infinite-lending
+
+On branch feat/payment-gateway
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  modified:   src/index.ts
+
+Untracked files:
+  src/new-feature.ts
+```
+
+**Aliases:**
+```bash
+alpha-5 status feature-name
+alpha-5 st feature-name    # Short version
+```
+
+**Use cases:**
+- Quick check without changing directories
+- See what needs to be committed
+- Check which branch you're on
+- Verify upstream sync status
+
+### 📍 Print Feature Path
+
+Print the absolute path to a feature directory:
+
+```bash
+alpha-5 path <feature-name>
+```
+
+**Example:**
+```bash
+alpha-5 path payment-gateway
+# Output: /Users/ricardo/features/payment-gateway
+```
+
+**Use cases:**
+
+**Navigate to feature:**
+```bash
+cd $(alpha-5 path payment-gateway)
+```
+
+**Navigate to repository:**
+```bash
+cd $(alpha-5 path payment-gateway)/infinite-lending
+```
+
+**Use in scripts:**
+```bash
+FEATURE_PATH=$(alpha-5 path payment-gateway)
+echo "Working in: $FEATURE_PATH"
+```
+
+**Copy files:**
+```bash
+cp myfile.txt $(alpha-5 path payment-gateway)/infinite-lending/
+```
+
+### 📂 Open Feature Repository
+
+Navigate directly to your feature's `infinite-lending` repository:
+
+```bash
+alpha-5 open <feature-name>
+# or
+a5open <feature-name>
+```
+
+**What it does:**
+- Changes your current directory to `feature-name/infinite-lending/`
+- This is where you'll work on your feature
+- Works as a **shell function** (not a script), so `cd` works in your current terminal
+- Installed automatically during setup
+
+**Example:**
+```bash
+alpha-5 open payment-gateway
+# You're now in: /Users/ricardo/features/payment-gateway/infinite-lending/
+
+# Same thing with alias:
+a5open payment-gateway
+```
+
+**Structure:**
+```
+features/
+└── payment-gateway/                    # Feature root
+    └── infinite-lending/               # Cloned repository (← a5open goes here)
+        ├── development.env
+        ├── .claude/
+        │   └── settings.local.json
+        └── ... (all repository files)
+```
+
+**Technical details:**
+
+The installer adds this function to your `~/.zshrc`:
+```bash
+alpha-5() {
+    # Special handling for 'open' command
+    if [ "$1" = "open" ]; then
+        local feature_name=$2
+        local repo_path=$(bash $ALPHA5_HOME/alpha-5.sh open "$feature_name" 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$repo_path" ]; then
+            cd "$repo_path"
+        else
+            bash $ALPHA5_HOME/alpha-5.sh open "$feature_name"
+        fi
+    else
+        # Pass through all other commands
+        bash $ALPHA5_HOME/alpha-5.sh "$@"
+    fi
+}
+
+# Convenience alias
+a5open() {
+    alpha-5 open "$1"
+}
+```
+
+**For scripting (prints path):**
+```bash
+# Get the path without cd-ing
+WORKSPACE_PATH=$(alpha-5 open payment-gateway)
+echo "Workspace at: $WORKSPACE_PATH"
+```
+
+**Difference from `path`:**
+- `alpha-5 path <name>` → Prints `/features/feature-name`
+- `alpha-5 open <name>` → Changes directory to `/features/feature-name/infinite-lending`
+- `a5open <name>` → Same as `alpha-5 open` (alias)
+
+### 🔄 Update All Features
+
+Update configuration files for all features at once:
+
+```bash
+alpha-5 update-all
+```
+
+**What it does:**
+- Iterates through all features in your configured path
+- Updates `development.env` in each feature's repository
+- Updates `.claude/settings.local.json` in each feature's repository
+- Shows a summary of successes, failures, and skipped features
+
+**Example:**
+```bash
+alpha-5 update-all
+```
+
+**Output:**
+```
+🔄 Updating all features...
+
+Processing: payment-gateway
+  ✓ Updated successfully
+
+Processing: user-authentication
+  ✓ Updated successfully
+
+Processing: notification-system
+  ⚠ Skipped (missing infinite-lending directory)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Update Summary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total features: 3
+Updated: 2
+Skipped: 1
+
+🎉 Update completed!
+```
+
+**Use cases:**
+- After pulling latest changes to your local infinite-lending repo
+- Sync all features with updated environment variables
+- Ensure all projects have consistent configuration
+
 ### 🏷️ Show Version
 
 Display the current version of the CLI:
@@ -324,6 +558,28 @@ Display the current version of the CLI:
 ```bash
 alpha-5 version
 ```
+
+---
+
+## 🔧 Shell Functions
+
+The installer automatically adds these shell functions to your `~/.zshrc`:
+
+### `a5open <feature-name>` - Navigate to Repository
+
+Changes your current directory to the feature's `infinite-lending` folder:
+
+```bash
+a5open payment-gateway
+# You're now in your workspace!
+pwd
+# → /Users/ricardo/features/payment-gateway/infinite-lending/payment-gateway
+```
+
+**Why a shell function?**
+- Scripts run in a subshell and can't change the parent shell's directory
+- This function runs in your current shell, so `cd` works as expected
+- Automatically installed during `./install.sh`
 
 ---
 
@@ -339,8 +595,12 @@ Creates:
 ```
 features/
 └── payment-processing/
-    └── agents/
-        └── [all agents from infinite-lending repo]
+    └── infinite-lending/
+        ├── payment-processing/         # Your workspace folder
+        ├── development.env
+        ├── .claude/
+        │   └── settings.local.json
+        └── ... (all other files from the repository)
 ```
 
 ### Example 2: Create Multiple Features
@@ -364,10 +624,8 @@ alpha-5 add payment-gateway
 
 # ... time passes, infinite-lending repo gets updates ...
 
-# Update the feature with latest agents
+# Update the feature with latest configuration
 alpha-5 update payment-gateway
-
-# Your custom spec/ files and IMPLEMENTATION_PLAN.md are preserved!
 ```
 
 ### Example 4: List and Manage Features
@@ -469,7 +727,7 @@ The installer will detect the existing configuration and ask if you want to upda
 alpha-5-cli/
 ├── alpha-5.sh           # Main CLI wrapper script
 ├── setup_feature.sh     # Feature setup script (creates features)
-├── update_feature.sh    # Feature update script (selective sync)
+├── update_feature.sh    # Feature update script (syncs config files)
 ├── install.sh           # Installation script (adds to PATH)
 ├── README.md            # Documentation
 └── features/            # Default features location (if not customized)
@@ -482,30 +740,35 @@ When you run `alpha-5 add feature-name`, the following structure is created:
 ```
 $ALPHA5_FEATURES_PATH/
 └── feature-name/
-    └── agents/
-        ├── [agent files and folders from infinite-lending repo]
-        └── ...
+    └── infinite-lending/
+        ├── feature-name/               # Your workspace
+        ├── development.env
+        ├── .claude/
+        │   └── settings.local.json
+        └── ... (all other repository files)
 ```
 
-**Example with actual feature:**
+**Example with actual features:**
 
 ```
 ~/my-features/
 ├── payment-gateway/
-│   └── agents/
-│       ├── config/
-│       ├── rules/
-│       └── ...
+│   └── infinite-lending/
+│       ├── payment-gateway/           # Workspace for this feature
+│       ├── development.env
+│       ├── .claude/
+│       │   └── settings.local.json
+│       └── ... (repository files)
 ├── user-auth/
-│   └── agents/
-│       ├── config/
-│       ├── rules/
-│       └── ...
+│   └── infinite-lending/
+│       ├── user-auth/                 # Workspace for this feature
+│       ├── development.env
+│       └── ... (repository files)
 └── notification-system/
-    └── agents/
-        ├── config/
-        ├── rules/
-        └── ...
+    └── infinite-lending/
+        ├── notification-system/       # Workspace for this feature
+        ├── development.env
+        └── ... (repository files)
 ```
 
 ## Uninstallation
@@ -587,33 +850,33 @@ $ ./install.sh
 
 ---
 
-### Issue: Git Clone Fails
+### Issue: Source Repository Not Found (Update Command)
 
 **Symptoms:**
 ```bash
-❌ FAIL: Failed to clone infinite-lending repository
+❌ FAIL: infinite-lending repository not found at $HOME/projects/repos/infinite-lending
 ```
+
+**Note:** This error only occurs when using the `update` command. The `add` command clones directly from GitHub.
 
 **Solutions:**
 
-1. **Check internet connection:**
+1. **Verify the repository exists:**
    ```bash
-   ping github.com
+   ls $HOME/projects/repos/infinite-lending
    ```
 
-2. **Verify Git is installed:**
+2. **Clone the repository if missing:**
    ```bash
-   git --version
+   mkdir -p $HOME/projects/repos
+   cd $HOME/projects/repos
+   git clone https://github.com/cloudwalk/infinite-lending.git
    ```
 
-3. **Check repository URL access:**
+3. **Check required files exist:**
    ```bash
-   git ls-remote https://github.com/cloudwalk/infinite-lending.git
-   ```
-
-4. **SSH vs HTTPS:** If using SSH, ensure your keys are configured:
-   ```bash
-   ssh -T git@github.com
+   ls $HOME/projects/repos/infinite-lending/development.env
+   ls $HOME/projects/repos/infinite-lending/.claude/settings.local.json
    ```
 
 ---
@@ -744,38 +1007,32 @@ No features found
 **Recovery:**
 - Deleted features cannot be recovered
 - However, you can recreate them: `alpha-5 add feature-name`
-- This will clone fresh agents from the repository
+- This will copy fresh configuration files from the repository
 
 ---
 
-### Issue: Update Overwrites My Files
+### Issue: Update Overwrites My Custom Configuration
 
 **Symptoms:**
-- Files you created in agents/ are being overwritten
+- Custom changes to configuration files are being overwritten
 
 **Solutions:**
 
-1. **Understand what update preserves:**
+1. **Understand what update does:**
    ```
-   Preserved:
-   - spec/ directory
-   - IMPLEMENTATION_PLAN.md
-   
    Updated (overwritten):
-   - All other agent files
-   - All *.md files (README.md, CHANGELOG.md, etc.)
-   - loop.sh
+   - development.env
+   - .claude/settings.local.json
    ```
 
-2. **Protect your custom files:**
+2. **Backup before update:**
    ```bash
-   # Option 1: Move custom files to spec/ directory (always preserved)
-   mv $ALPHA5_FEATURES_PATH/feature-name/agents/MY_NOTES.md \
-      $ALPHA5_FEATURES_PATH/feature-name/spec/
-   
-   # Option 2: Backup before update if needed
-   cp $ALPHA5_FEATURES_PATH/feature-name/agents/loop.sh \
-      $ALPHA5_FEATURES_PATH/feature-name/agents/loop.sh.backup
+   # Backup your custom configurations
+   cp $ALPHA5_FEATURES_PATH/feature-name/development.env \
+      $ALPHA5_FEATURES_PATH/feature-name/development.env.backup
+
+   cp $ALPHA5_FEATURES_PATH/feature-name/.claude/settings.local.json \
+      $ALPHA5_FEATURES_PATH/feature-name/.claude/settings.local.json.backup
    ```
 
 3. **Use version control:**
@@ -784,10 +1041,10 @@ No features found
    git init
    git add .
    git commit -m "Before update"
-   
+
    # Now update
    alpha-5 update feature-name
-   
+
    # Review changes
    git diff
    ```
@@ -820,25 +1077,26 @@ No features found
 
 ---
 
-### Issue: Update is Slow
+### Issue: Missing Configuration Files
 
 **Symptoms:**
-- Update takes a long time (especially without rsync)
+```bash
+❌ FAIL: development.env not found in source repository
+```
 
 **Solutions:**
 
-1. **Install rsync for faster updates:**
+1. **Verify files exist in source repository:**
    ```bash
-   # macOS
-   brew install rsync
-   
-   # Linux (Ubuntu/Debian)
-   sudo apt-get install rsync
+   ls -la $HOME/projects/repos/infinite-lending/development.env
+   ls -la $HOME/projects/repos/infinite-lending/.claude/settings.local.json
    ```
 
-2. **Be patient:**
-   - Cloning the repository takes time
-   - Copying files without rsync is slower but works
+2. **Pull latest changes from source repository:**
+   ```bash
+   cd $HOME/projects/repos/infinite-lending
+   git pull origin main
+   ```
 
 ---
 
@@ -932,7 +1190,12 @@ bash --version
 | `alpha-5 help` | Show help and configuration | `alpha-5 help` | `-h`, `--help` |
 | `alpha-5 add <name>` | Create a new feature | `alpha-5 add payment-gateway` | `create` |
 | `alpha-5 list` | List all existing features | `alpha-5 list` | `ls` |
-| `alpha-5 update <name>` | Update feature (selective sync) | `alpha-5 update payment-gateway` | `sync` |
+| `alpha-5 update <name>` | Update feature config files | `alpha-5 update payment-gateway` | `sync` |
+| `alpha-5 update-all` | Update all features at once | `alpha-5 update-all` | - |
+| `alpha-5 status <name>` | Show git status of a feature | `alpha-5 status payment-gateway` | `st` |
+| `alpha-5 path <name>` | Print absolute path to feature | `alpha-5 path payment-gateway` | - |
+| `alpha-5 open <name>` | Print path to feature repository | `alpha-5 open payment-gateway` | - |
+| `a5open <name>` | Navigate to feature repository | `a5open payment-gateway` | - |
 | `alpha-5 delete <name>` | Delete a feature (with confirmation) | `alpha-5 delete old-feature` | `remove`, `rm` |
 | `alpha-5 version` | Show CLI version | `alpha-5 version` | `-v`, `--version` |
 
@@ -943,8 +1206,8 @@ bash --version
 **Q: Can I use this with bash instead of zsh?**  
 A: Yes, but you'll need to modify the installer to use `~/.bashrc` or `~/.bash_profile` instead of `~/.zshrc`.
 
-**Q: Where does the CLI clone the infinite-lending repository?**  
-A: It clones to a temporary directory `/tmp/infinite-lending-<timestamp>` which is automatically cleaned up after copying.
+**Q: Where does the CLI get the configuration files from?**
+A: The `add` command clones the `infinite-lending` repository from GitHub into the feature directory, then copies config files from your local repo at `$HOME/projects/repos/infinite-lending` into the cloned repo. The `update` command also copies files from your local infinite-lending repository.
 
 **Q: Can I have multiple features directories?**  
 A: The CLI uses one configured path (`$ALPHA5_FEATURES_PATH`), but you can change it anytime and create features in different locations.
@@ -952,8 +1215,8 @@ A: The CLI uses one configured path (`$ALPHA5_FEATURES_PATH`), but you can chang
 **Q: What if the feature name contains spaces?**  
 A: Use quotes: `alpha-5 add "my feature name"` or use dashes: `alpha-5 add my-feature-name` (recommended)
 
-**Q: Can I customize what gets copied?**  
-A: Yes! Edit the `setup_feature.sh` script to customize the repository URL, what folders get copied, or add additional setup steps.
+**Q: Can I customize what gets copied?**
+A: Yes! Edit the `setup_feature.sh` script to customize which files get copied or add additional setup steps.
 
 **Q: How do I see all my features?**  
 A: Use `alpha-5 list` to see all features in your configured path, or use `ls $ALPHA5_FEATURES_PATH` for a simple directory listing.
@@ -961,35 +1224,30 @@ A: Use `alpha-5 list` to see all features in your configured path, or use `ls $A
 **Q: Can I recover a deleted feature?**  
 A: No, the `delete` command permanently removes the feature directory. There is no undo. Always confirm you're deleting the correct feature before typing "yes".
 
-**Q: What happens if I accidentally type "yes" when deleting?**  
-A: The feature will be permanently deleted. However, you can always recreate it using `alpha-5 add feature-name` and it will clone the agents from the repository again.
+**Q: What happens if I accidentally type "yes" when deleting?**
+A: The feature will be permanently deleted. However, you can always recreate it using `alpha-5 add feature-name` and it will copy the configuration files from the repository again.
 
 **Q: Can I rename a feature?**  
 A: The CLI doesn't have a rename command, but you can manually rename the directory: `mv $ALPHA5_FEATURES_PATH/old-name $ALPHA5_FEATURES_PATH/new-name`
 
-**Q: What's the difference between `add` and `update`?**  
-A: `add` creates a new feature from scratch. `update` refreshes an existing feature with the latest agents while preserving your custom spec/ directory and IMPLEMENTATION_PLAN.md file.
+**Q: What's the difference between `add` and `update`?**
+A: `add` creates a new feature by cloning the infinite-lending repository from GitHub and copying config files from your local repo. `update` refreshes an existing feature's config files by copying from your local infinite-lending repository.
 
-**Q: Will `update` overwrite my changes?**  
-A: The update command preserves only:
-- Your spec/ directory
-- IMPLEMENTATION_PLAN.md (your custom implementation plan)
+**Q: Will `update` overwrite my changes?**
+A: Yes, the update command overwrites:
+- development.env
+- .claude/settings.local.json
 
-All other files including *.md files (README.md, CHANGELOG.md, etc.) and loop.sh will be updated to match the repository. It's recommended to commit your changes before updating.
+It's recommended to commit your changes or create backups before updating.
 
-**Q: When should I use the `update` command?**  
+**Q: When should I use the `update` command?**
 A: Use `update` when:
-- The infinite-lending repository has new features or bug fixes
-- You want to sync agent improvements to your existing features
-- You need to update multiple features with the latest code
+- The infinite-lending repository has new environment variables
+- Configuration files have been updated in the source repository
+- You need to sync configuration changes to your existing features
 
-**Q: Can I update all features at once?**  
-A: Not directly, but you can use a bash loop:
-```bash
-for feature in $(ls $ALPHA5_FEATURES_PATH); do
-  alpha-5 update "$feature"
-done
-```
+**Q: Can I update all features at once?**
+A: Yes! Use the `alpha-5 update-all` command to update configuration files for all features in one go.
 
 ---
 
@@ -1022,5 +1280,5 @@ Built with ❤️ by the PowerLenders team
 
 ---
 
-**Version:** 1.0.0  
+**Version:** 2.3.0
 **Last Updated:** February 2026

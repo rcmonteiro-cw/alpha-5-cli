@@ -24,48 +24,69 @@ else
     exit 1
 fi
 
-echo "📦 Cloning infinite-lending repository to /tmp..."
-TEMP_REPO="/tmp/infinite-lending-$(date +%s)"
-if git clone https://github.com/cloudwalk/infinite-lending.git "$TEMP_REPO"; then
-    echo "✅ SUCCESS: Cloned infinite-lending repository to $TEMP_REPO"
+echo "📦 Cloning infinite-lending repository into feature directory..."
+CLONED_REPO="$FEATURE_DIR/infinite-lending"
+if git clone https://github.com/cloudwalk/infinite-lending.git "$CLONED_REPO"; then
+    echo "✅ SUCCESS: Cloned infinite-lending repository to $CLONED_REPO"
 else
     echo "❌ FAIL: Failed to clone infinite-lending repository"
     exit 1
 fi
 
-echo "📂 Creating agents directory..."
-AGENTS_DEST="$FEATURE_DIR/agents"
-if mkdir -p "$AGENTS_DEST"; then
-    echo "✅ SUCCESS: Created agents directory at $AGENTS_DEST"
+echo "🔀 Creating and checking out feature branch..."
+BRANCH_NAME="feat/$FEATURE_NAME"
+if (cd "$CLONED_REPO" && git checkout -b "$BRANCH_NAME"); then
+    echo "✅ SUCCESS: Created and checked out branch '$BRANCH_NAME'"
 else
-    echo "❌ FAIL: Failed to create agents directory"
-    rm -rf "$TEMP_REPO"
+    echo "❌ FAIL: Failed to create branch '$BRANCH_NAME'"
     exit 1
 fi
 
-echo "📋 Copying agents contents..."
-AGENTS_SRC="$TEMP_REPO/agents"
+# Source directory for config files
+SOURCE_REPO="$HOME/projects/repos/infinite-lending"
 
-if [ -d "$AGENTS_SRC" ]; then
-    if cp -r "$AGENTS_SRC"/* "$AGENTS_DEST"/; then
-        echo "✅ SUCCESS: Copied all agents contents to $AGENTS_DEST"
+# Verify source repository exists
+if [ ! -d "$SOURCE_REPO" ]; then
+    echo "❌ FAIL: Source repository not found at $SOURCE_REPO"
+    echo "Please ensure the repository exists at this location"
+    exit 1
+fi
+
+echo "📋 Copying configuration files from local repo to cloned repo..."
+
+# Copy development.env
+if [ -f "$SOURCE_REPO/development.env" ]; then
+    if cp "$SOURCE_REPO/development.env" "$CLONED_REPO/development.env"; then
+        echo "✅ SUCCESS: Copied development.env"
     else
-        echo "❌ FAIL: Failed to copy agents contents"
-        rm -rf "$TEMP_REPO"
+        echo "❌ FAIL: Failed to copy development.env"
         exit 1
     fi
 else
-    echo "❌ FAIL: agents folder not found in repository"
-    rm -rf "$TEMP_REPO"
+    echo "❌ FAIL: development.env not found in source repository"
     exit 1
 fi
 
-echo "🧹 Cleaning up temporary files..."
-if rm -rf "$TEMP_REPO"; then
-    echo "✅ SUCCESS: Cleaned up temporary repository"
+# Create .claude directory and copy settings.local.json
+mkdir -p "$CLONED_REPO/.claude"
+if [ -f "$SOURCE_REPO/.claude/settings.local.json" ]; then
+    if cp "$SOURCE_REPO/.claude/settings.local.json" "$CLONED_REPO/.claude/settings.local.json"; then
+        echo "✅ SUCCESS: Copied .claude/settings.local.json"
+    else
+        echo "❌ FAIL: Failed to copy .claude/settings.local.json"
+        exit 1
+    fi
 else
-    echo "⚠️  WARNING: Failed to clean up temporary repository at $TEMP_REPO"
+    echo "❌ FAIL: .claude/settings.local.json not found in source repository"
+    exit 1
 fi
 
 echo "🎉 Feature setup completed successfully!"
 echo "📍 Feature location: $FEATURE_DIR"
+echo "📍 Repository location: $CLONED_REPO"
+echo ""
+echo "📂 Opening repository..."
+echo ""
+
+# Output special marker for a5 function to detect and cd
+echo "__A5_AUTO_CD__:$CLONED_REPO"

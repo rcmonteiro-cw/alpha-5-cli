@@ -80,25 +80,68 @@ if [ ! -f "$SHELL_RC" ]; then
     touch "$SHELL_RC"
 fi
 
-# Create alias configuration
+# Create shell function configuration
 ALIAS_CONFIG="
 # Alpha-5 CLI
 export ALPHA5_HOME=\"$SCRIPT_DIR\"
 export ALPHA5_FEATURES_PATH=\"$FEATURES_PATH\"
-alias alpha-5=\"bash \$ALPHA5_HOME/alpha-5.sh\"
+
+# Main a5 function with special handling for 'open' and 'add' commands
+a5() {
+    # Check if first argument is 'open'
+    if [ \"\$1\" = \"open\" ]; then
+        local feature_name=\$2
+        local repo_path=\$(bash \$ALPHA5_HOME/alpha-5.sh open \"\$feature_name\" 2>/dev/null)
+        if [ \$? -eq 0 ] && [ -n \"\$repo_path\" ]; then
+            cd \"\$repo_path\"
+        else
+            # Show error from the script
+            bash \$ALPHA5_HOME/alpha-5.sh open \"\$feature_name\"
+        fi
+    elif [ \"\$1\" = \"add\" ] || [ \"\$1\" = \"create\" ]; then
+        # Capture output and check for auto-cd marker
+        local output=\$(bash \$ALPHA5_HOME/alpha-5.sh \"\$@\" 2>&1)
+        echo \"\$output\" | grep -v \"__A5_AUTO_CD__\"
+
+        # Check if there's a cd marker and navigate
+        local cd_path=\$(echo \"\$output\" | grep \"__A5_AUTO_CD__\" | cut -d: -f2-)
+        if [ -n \"\$cd_path\" ] && [ -d \"\$cd_path\" ]; then
+            cd \"\$cd_path\"
+            echo \"✅ Opened workspace: \$cd_path\"
+        fi
+    else
+        # Pass through all other commands to the script
+        bash \$ALPHA5_HOME/alpha-5.sh \"\$@\"
+    fi
+}
+
+# Aliases
+alias alpha-5='a5'
+a5open() {
+    a5 open \"\$1\"
+}
 "
 
-# Check if alias already exists
-if grep -q "alias alpha-5=" "$SHELL_RC" 2>/dev/null; then
+# Check if a5 function already exists
+if grep -q "^a5()" "$SHELL_RC" 2>/dev/null || grep -q "alias alpha-5=" "$SHELL_RC" 2>/dev/null; then
     echo ""
-    echo -e "${YELLOW}⚠️  Alpha-5 alias already exists in $SHELL_RC${NC}"
+    echo -e "${YELLOW}⚠️  Alpha-5 configuration already exists in $SHELL_RC${NC}"
     echo ""
     read -p "Do you want to update it? (y/n) " -n 1 -r
     echo ""
     
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        # Remove old configuration
-        sed -i.backup '/# Alpha-5 CLI/,/alias alpha-5=/d' "$SHELL_RC"
+        # Remove old configuration more thoroughly
+        # Remove from "# Alpha-5 CLI" to either a closing brace or the end of the alpha-5 alias
+        awk '
+            /# Alpha-5 CLI/ { skip=1 }
+            skip && /^}$/ { skip=0; next }
+            skip && /^alias alpha-5=/ { skip=0; next }
+            skip && /^a5open\(\)/ && c==0 { c=1 }
+            c && /^}$/ { c=0; skip=0; next }
+            !skip
+        ' "$SHELL_RC" > "$SHELL_RC.tmp" && mv "$SHELL_RC.tmp" "$SHELL_RC"
+
         echo -e "${GREEN}✅ Removed old configuration${NC}"
     else
         echo -e "${YELLOW}⚠️  Installation cancelled${NC}"
@@ -106,9 +149,9 @@ if grep -q "alias alpha-5=" "$SHELL_RC" 2>/dev/null; then
     fi
 fi
 
-# Add alias to .zshrc
+# Add function to .zshrc
 echo "$ALIAS_CONFIG" >> "$SHELL_RC"
-echo -e "${GREEN}✅ Added alpha-5 alias to $SHELL_RC${NC}"
+echo -e "${GREEN}✅ Added a5 function and alpha-5 alias to $SHELL_RC${NC}"
 
 echo ""
 echo -e "${GREEN}🎉 Installation completed successfully!${NC}"
@@ -122,6 +165,7 @@ echo ""
 echo "Then try:"
 echo "  alpha-5 help"
 echo "  alpha-5 add my-feature"
+echo "  a5open my-feature     # Navigate to feature repository"
 echo ""
 
 # Offer to source immediately

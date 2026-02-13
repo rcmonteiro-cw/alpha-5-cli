@@ -24,93 +24,59 @@ if [ ! -d "$FEATURE_DIR" ]; then
     exit 1
 fi
 
-# Check if agents directory exists
-AGENTS_DEST="$FEATURE_DIR/agents"
-if [ ! -d "$AGENTS_DEST" ]; then
-    echo "❌ ERROR: Agents directory not found in feature '$FEATURE_NAME'"
-    echo "Expected: $AGENTS_DEST"
+# Check if infinite-lending directory exists in feature
+CLONED_REPO="$FEATURE_DIR/infinite-lending"
+if [ ! -d "$CLONED_REPO" ]; then
+    echo "❌ ERROR: infinite-lending directory not found in feature '$FEATURE_NAME'"
+    echo "Expected: $CLONED_REPO"
     exit 1
 fi
 
-echo "📦 Cloning infinite-lending repository to /tmp..."
-TEMP_REPO="/tmp/infinite-lending-$(date +%s)"
-if git clone https://github.com/cloudwalk/infinite-lending.git "$TEMP_REPO"; then
-    echo "✅ SUCCESS: Cloned infinite-lending repository to $TEMP_REPO"
-else
-    echo "❌ FAIL: Failed to clone infinite-lending repository"
+# Source directory for infinite-lending repo
+SOURCE_REPO="$HOME/projects/repos/infinite-lending"
+
+# Verify source repository exists
+if [ ! -d "$SOURCE_REPO" ]; then
+    echo "❌ FAIL: Source repository not found at $SOURCE_REPO"
+    echo "Please ensure the repository exists at this location"
     exit 1
 fi
 
-AGENTS_SRC="$TEMP_REPO/agents"
+echo "📋 Updating configuration files..."
 
-if [ ! -d "$AGENTS_SRC" ]; then
-    echo "❌ FAIL: agents folder not found in repository"
-    rm -rf "$TEMP_REPO"
-    exit 1
-fi
-
-echo "🔄 Updating agents contents (with exclusions)..."
-
-# Create a function to copy with exclusions
-copy_with_exclusions() {
-    local src="$1"
-    local dest="$2"
-    
-    # Use rsync if available, otherwise use find with cp
-    if command -v rsync &> /dev/null; then
-        rsync -av \
-            --exclude='spec/' \
-            --exclude='IMPLEMENTATION_PLAN.md' \
-            "$src/" "$dest/"
+# Update development.env
+if [ -f "$SOURCE_REPO/development.env" ]; then
+    if cp "$SOURCE_REPO/development.env" "$CLONED_REPO/development.env"; then
+        echo "✅ SUCCESS: Updated development.env"
     else
-        # Fallback to manual copying with find
-        echo "⚠️  rsync not found, using manual copy (slower)"
-        
-        # Copy all files except excluded ones
-        find "$src" -type f | while read -r file; do
-            relative_path="${file#$src/}"
-            
-            # Skip if in spec directory
-            if [[ "$relative_path" == spec/* ]]; then
-                continue
-            fi
-            
-            # Skip IMPLEMENTATION_PLAN.md
-            if [[ "$(basename "$file")" == "IMPLEMENTATION_PLAN.md" ]]; then
-                continue
-            fi
-            
-            # Copy the file
-            dest_file="$dest/$relative_path"
-            dest_dir=$(dirname "$dest_file")
-            mkdir -p "$dest_dir"
-            cp "$file" "$dest_file"
-        done
+        echo "❌ FAIL: Failed to update development.env"
+        exit 1
     fi
-}
-
-# Perform the update
-if copy_with_exclusions "$AGENTS_SRC" "$AGENTS_DEST"; then
-    echo "✅ SUCCESS: Updated agents contents in $AGENTS_DEST"
-    echo ""
-    echo "📋 Update summary:"
-    echo "  ✗ spec/ directory (not updated - preserved)"
-    echo "  ✗ IMPLEMENTATION_PLAN.md (not updated - preserved)"
-    echo "  ✓ All other files including *.md and loop.sh (updated)"
 else
-    echo "❌ FAIL: Failed to update agents contents"
-    rm -rf "$TEMP_REPO"
+    echo "❌ FAIL: development.env not found in source repository"
+    exit 1
+fi
+
+# Create .claude directory if it doesn't exist and update settings.local.json
+mkdir -p "$CLONED_REPO/.claude"
+if [ -f "$SOURCE_REPO/.claude/settings.local.json" ]; then
+    if cp "$SOURCE_REPO/.claude/settings.local.json" "$CLONED_REPO/.claude/settings.local.json"; then
+        echo "✅ SUCCESS: Updated .claude/settings.local.json"
+    else
+        echo "❌ FAIL: Failed to update .claude/settings.local.json"
+        exit 1
+    fi
+else
+    echo "❌ FAIL: .claude/settings.local.json not found in source repository"
     exit 1
 fi
 
 echo ""
-echo "🧹 Cleaning up temporary files..."
-if rm -rf "$TEMP_REPO"; then
-    echo "✅ SUCCESS: Cleaned up temporary repository"
-else
-    echo "⚠️  WARNING: Failed to clean up temporary repository at $TEMP_REPO"
-fi
+echo "📋 Update summary:"
+echo "  ✓ development.env (updated)"
+echo "  ✓ .claude/settings.local.json (updated)"
 
 echo ""
 echo "🎉 Feature update completed successfully!"
 echo "📍 Feature location: $FEATURE_DIR"
+echo "📍 Repository location: $CLONED_REPO"
