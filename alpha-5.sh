@@ -1,14 +1,11 @@
 #!/bin/bash
 
 # Alpha-5 CLI Tool
-# Main command-line interface for feature management
+# Repo-agnostic feature management using git worktrees
 
 set -e
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SETUP_SCRIPT="$SCRIPT_DIR/setup_feature.sh"
-UPDATE_SCRIPT="$SCRIPT_DIR/update_feature.sh"
+VERSION="3.1.0"
 
 # Colors for output
 RED='\033[0;31m'
@@ -17,486 +14,643 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Function to display help
-show_help() {
-    local features_path="${ALPHA5_FEATURES_PATH:-./features}"
-    
+# Valid prefixes for feature names
+VALID_PREFIXES=("feat" "fix" "chore" "refactor" "docs" "test" "ci" "perf")
+
+# ─── Repo Detection ───────────────────────────────────────────────────────────
+
+get_repo_root() {
+    # Use --git-common-dir to always resolve to the main repo,
+    # even when running from inside a worktree
+    local git_common_dir
+    git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null)"
+
+    if [ "$git_common_dir" = ".git" ]; then
+        # We're in the main repo
+        git rev-parse --show-toplevel 2>/dev/null
+    else
+        # We're in a worktree — git-common-dir is e.g. /path/to/main-repo/.git
+        # Strip the trailing /.git to get the repo root
+        dirname "$git_common_dir"
+    fi
+}
+
+get_repo_name() {
+    basename "$(get_repo_root)"
+}
+
+get_features_path() {
+    local repo_root
+    repo_root="$(get_repo_root)"
+    echo "$(dirname "$repo_root")/$(basename "$repo_root")-features"
+}
+
+require_repo() {
+    if ! git rev-parse --show-toplevel &>/dev/null; then
+        echo -e "${RED}ERROR: Not inside a git repository${NC}"
+        echo ""
+        echo "Navigate to a git repository and try again."
+        exit 1
+    fi
+}
+
+# ─── Name Parsing ─────────────────────────────────────────────────────────────
+
+# Parse "feat:my-feature" into prefix="feat" and name="my-feature"
+# Branch becomes "feat/my-feature", directory becomes "feat:my-feature"
+parse_feature_input() {
+    local input="$1"
+
+    if [[ "$input" != *:* ]]; then
+        echo -e "${RED}ERROR: Feature name must include a prefix${NC}"
+        echo ""
+        echo "Format: a5 add <prefix>:<name>"
+        echo ""
+        echo "Valid prefixes: ${VALID_PREFIXES[*]}"
+        echo ""
+        echo "Examples:"
+        echo "  a5 add feat:new-button"
+        echo "  a5 add fix:login-bug"
+        echo "  a5 add chore:update-deps"
+        exit 1
+    fi
+
+    PARSED_PREFIX="${input%%:*}"
+    PARSED_NAME="${input#*:}"
+
+    if [ -z "$PARSED_NAME" ]; then
+        echo -e "${RED}ERROR: Feature name after prefix cannot be empty${NC}"
+        echo ""
+        echo "Example: a5 add ${PARSED_PREFIX}:my-feature"
+        exit 1
+    fi
+
+    # Validate prefix
+    local valid=false
+    for p in "${VALID_PREFIXES[@]}"; do
+        if [ "$p" = "$PARSED_PREFIX" ]; then
+            valid=true
+            break
+        fi
+    done
+
+    if [ "$valid" = false ]; then
+        echo -e "${RED}ERROR: Invalid prefix '${PARSED_PREFIX}'${NC}"
+        echo ""
+        echo "Valid prefixes: ${VALID_PREFIXES[*]}"
+        exit 1
+    fi
+}
+
+# Get the branch name from a feature input (e.g., "feat:my-feature" -> "feat/my-feature")
+get_branch_name() {
+    local input="$1"
+    local prefix="${input%%:*}"
+    local name="${input#*:}"
+    echo "${prefix}/${name}"
+}
+
+# ─── File Syncing ─────────────────────────────────────────────────────────────
+
+sync_files_to_worktree() {
+    local source_root="$1"
+    local target_root="$2"
+    local synced=0
+
     echo ""
-    echo "🚀 Alpha-5 CLI - Feature Management Tool"
+    echo "Syncing files..."
+
+    # Copy all *.env files from repo root
+    for env_file in "$source_root"/*.env; do
+        [ -f "$env_file" ] || continue
+        local filename
+        filename="$(basename "$env_file")"
+        if cp "$env_file" "$target_root/$filename"; then
+            echo -e "${GREEN}  Synced: $filename${NC}"
+            synced=$((synced + 1))
+        else
+            echo -e "${RED}  Failed: $filename${NC}"
+        fi
+    done
+
+    # Copy ~/.claude/settings.local.json
+    local claude_settings="$HOME/.claude/settings.local.json"
+    if [ -f "$claude_settings" ]; then
+        mkdir -p "$target_root/.claude"
+        if cp "$claude_settings" "$target_root/.claude/settings.local.json"; then
+            echo -e "${GREEN}  Synced: .claude/settings.local.json${NC}"
+            synced=$((synced + 1))
+        else
+            echo -e "${RED}  Failed: .claude/settings.local.json${NC}"
+        fi
+    fi
+
+    if [ "$synced" -eq 0 ]; then
+        echo -e "${YELLOW}  No files to sync${NC}"
+    fi
+}
+
+# Check sync status for a worktree (used by list)
+check_sync_status() {
+    local source_root="$1"
+    local target_root="$2"
+    # Returns: "ok", "outdated", or "missing"
+
+    local has_issues=false
+    local has_missing=false
+
+    # Check *.env files
+    for env_file in "$source_root"/*.env; do
+        [ -f "$env_file" ] || continue
+        local filename
+        filename="$(basename "$env_file")"
+        if [ ! -f "$target_root/$filename" ]; then
+            has_missing=true
+        elif ! cmp -s "$env_file" "$target_root/$filename"; then
+            has_issues=true
+        fi
+    done
+
+    # Check ~/.claude/settings.local.json
+    local claude_settings="$HOME/.claude/settings.local.json"
+    if [ -f "$claude_settings" ]; then
+        if [ ! -f "$target_root/.claude/settings.local.json" ]; then
+            has_missing=true
+        elif ! cmp -s "$claude_settings" "$target_root/.claude/settings.local.json"; then
+            has_issues=true
+        fi
+    fi
+
+    if [ "$has_missing" = true ]; then
+        echo "missing"
+    elif [ "$has_issues" = true ]; then
+        echo "outdated"
+    else
+        echo "ok"
+    fi
+}
+
+# ─── Help & Version ──────────────────────────────────────────────────────────
+
+show_help() {
+    local in_repo=false
+    local repo_info=""
+
+    if git rev-parse --show-toplevel &>/dev/null; then
+        in_repo=true
+        repo_info="$(get_repo_name) ($(get_repo_root))"
+    fi
+
+    echo ""
+    echo "Alpha-5 CLI - Feature Management with Git Worktrees"
     echo ""
     echo "Usage:"
-    echo "  alpha-5 <command> [arguments]"
+    echo "  a5 <command> [arguments]"
     echo ""
     echo "Commands:"
-    echo "  help                    Show this help message"
-    echo "  add <feature-name>      Create a new feature with the specified name"
-    echo "  list                    List all existing features"
-    echo "  update <feature-name>   Update an existing feature config files"
-    echo "  update-all              Update config files for all features"
-    echo "  delete <feature-name>   Delete a feature (with confirmation)"
-    echo "  status <feature-name>   Show git status of a feature"
-    echo "  path <feature-name>     Print the absolute path to a feature"
-    echo "  open <feature-name>     Print path to feature repository (use with cd)"
-    echo "  version                 Show version information"
+    echo "  help                          Show this help message"
+    echo "  add <prefix>:<name>          Create a new feature worktree"
+    echo "  list                          List all feature worktrees"
+    echo "  update <prefix>:<name>       Sync config files to a feature"
+    echo "  update-all                    Sync config files to all features"
+    echo "  delete <prefix>:<name>       Remove a feature worktree and branch"
+    echo "  status <prefix>:<name>       Show git status of a feature"
+    echo "  path <prefix>:<name>         Print absolute path to a feature"
+    echo "  open <prefix>:<name>         Navigate to a feature worktree"
+    echo "  version                       Show version information"
+    echo ""
+    echo "Valid prefixes: ${VALID_PREFIXES[*]}"
     echo ""
     echo "Examples:"
-    echo "  alpha-5 help"
-    echo "  alpha-5 add my-awesome-feature"
-    echo "  alpha-5 list"
-    echo "  alpha-5 update payment-processing"
-    echo "  alpha-5 update-all"
-    echo "  alpha-5 status payment-processing"
-    echo "  alpha-5 path payment-processing"
-    echo "  alpha-5 open payment-processing"
-    echo "  alpha-5 delete old-feature"
+    echo "  a5 add feat:new-button"
+    echo "  a5 add fix:login-bug"
+    echo "  a5 add chore:update-deps"
+    echo "  a5 list"
+    echo "  a5 open feat:new-button"
+    echo "  a5 delete fix:login-bug"
     echo ""
-    echo "Configuration:"
-    echo "  Features path: $features_path"
+    echo "Auto-synced files:"
+    echo "  - All *.env files from the repo root"
+    echo "  - ~/.claude/settings.local.json"
     echo ""
-    echo "Description:"
-    echo "  - 'add' creates a new feature directory with config files from infinite-lending"
-    echo "  - 'list' shows all features and their sync status"
-    echo "  - 'update' syncs an existing feature with latest config files"
-    echo "  - 'update-all' syncs all features with latest config files"
-    echo "  - 'delete' removes a feature after confirmation"
-    echo "  - 'status' shows git status of a feature's repository"
-    echo "  - 'path' prints the absolute path to a feature"
-    echo "  - 'open' prints path to feature's repository for navigation"
+
+    if [ "$in_repo" = true ]; then
+        echo "Current repo:      $repo_info"
+        echo "Features path:     $(get_features_path)"
+    else
+        echo -e "${YELLOW}Not inside a git repository. Navigate to one to use alpha-5.${NC}"
+    fi
     echo ""
 }
 
-# Function to show version
 show_version() {
-    echo "Alpha-5 CLI version 2.3.0"
+    echo "Alpha-5 CLI version $VERSION"
 }
 
-# Function to create a feature
+# ─── Add (Create Feature Worktree) ───────────────────────────────────────────
+
 create_feature() {
-    local feature_name="$1"
-    
-    if [ -z "$feature_name" ]; then
-        echo -e "${RED}❌ ERROR: Feature name is required${NC}"
+    local input="$1"
+
+    if [ -z "$input" ]; then
+        echo -e "${RED}ERROR: Feature name is required${NC}"
         echo ""
-        echo "Usage: alpha-5 add <feature-name>"
-        echo ""
-        echo "Run 'alpha-5 help' for more information."
+        echo "Usage: a5 add <prefix>:<name>"
+        echo "Example: a5 add feat:new-button"
         exit 1
     fi
-    
-    # Check if setup script exists
-    if [ ! -f "$SETUP_SCRIPT" ]; then
-        echo -e "${RED}❌ ERROR: Setup script not found at $SETUP_SCRIPT${NC}"
+
+    parse_feature_input "$input"
+    require_repo
+
+    local repo_root
+    repo_root="$(get_repo_root)"
+    local features_path
+    features_path="$(get_features_path)"
+    local branch_name
+    branch_name="$(get_branch_name "$input")"
+    local worktree_path="$features_path/$input"
+
+    if [ -d "$worktree_path" ]; then
+        echo -e "${RED}ERROR: Feature '$input' already exists at $worktree_path${NC}"
         exit 1
     fi
-    
-    # Execute the setup script
-    bash "$SETUP_SCRIPT" "$feature_name"
+
+    mkdir -p "$features_path"
+
+    echo ""
+    echo "Setting up feature: $input"
+    echo ""
+
+    echo "Creating worktree..."
+    if git worktree add "$worktree_path" -b "$branch_name" 2>&1; then
+        echo -e "${GREEN}Created worktree at $worktree_path${NC}"
+        echo -e "${GREEN}Branch: $branch_name${NC}"
+    else
+        echo -e "${RED}ERROR: Failed to create worktree${NC}"
+        echo ""
+        echo "The branch '$branch_name' may already exist. Check with: git branch -a"
+        exit 1
+    fi
+
+    sync_files_to_worktree "$repo_root" "$worktree_path"
+
+    echo ""
+    echo -e "${GREEN}Feature '$input' is ready!${NC}"
+    echo "Path: $worktree_path"
+    echo ""
+    echo "Navigate with: a5 open $input"
+    echo ""
+
+    echo "__A5_AUTO_CD__:$worktree_path"
 }
 
-# Function to list all features
+# ─── List Features ────────────────────────────────────────────────────────────
+
 list_features() {
-    local features_path="${ALPHA5_FEATURES_PATH:-./features}"
-    local source_repo="$HOME/projects/repos/infinite-lending"
+    require_repo
+
+    local repo_root
+    repo_root="$(get_repo_root)"
+    local repo_name
+    repo_name="$(get_repo_name)"
+    local features_path
+    features_path="$(get_features_path)"
 
     echo ""
-    echo -e "${CYAN}📁 Features in: $features_path${NC}"
+    echo -e "${CYAN}Features for: $repo_name${NC}"
+    echo -e "${CYAN}Worktrees in: $features_path${NC}"
     echo ""
 
-    # Check if features directory exists
     if [ ! -d "$features_path" ]; then
-        echo -e "${YELLOW}⚠️  Features directory does not exist yet${NC}"
+        echo -e "${YELLOW}No features yet.${NC}"
         echo ""
-        echo "Create your first feature with: alpha-5 add <feature-name>"
+        echo "Create one with: a5 add <prefix>:<name>"
         echo ""
         return 0
     fi
 
-    # Check if source repository exists
-    local source_exists=true
-    if [ ! -d "$source_repo" ]; then
-        source_exists=false
-    fi
-
-    # Count features
     local count=0
     local has_features=false
 
-    # List all directories in features path
-    for feature_dir in "$features_path"/*/ ; do
-        if [ -d "$feature_dir" ]; then
-            has_features=true
-            count=$((count + 1))
-            local feature_name=$(basename "$feature_dir")
+    for worktree_dir in "$features_path"/*/; do
+        [ -d "$worktree_dir" ] || continue
+        has_features=true
+        count=$((count + 1))
 
-            # Check if infinite-lending directory exists
-            local repo_dir="$feature_dir/infinite-lending"
-            if [ ! -d "$repo_dir" ]; then
-                echo -e "${YELLOW}⚠${NC} $feature_name ${YELLOW}(missing infinite-lending directory)${NC}"
-                continue
-            fi
+        local feature_name
+        feature_name="$(basename "$worktree_dir")"
 
-            # Check if required files exist
-            local dev_env_exists=false
-            local settings_exists=false
-            local dev_env_updated=true
-            local settings_updated=true
-
-            if [ -f "$repo_dir/development.env" ]; then
-                dev_env_exists=true
-            fi
-
-            if [ -f "$repo_dir/.claude/settings.local.json" ]; then
-                settings_exists=true
-            fi
-
-            # If source exists, check if files are up to date
-            if [ "$source_exists" = true ]; then
-                if [ "$dev_env_exists" = true ] && [ -f "$source_repo/development.env" ]; then
-                    if ! cmp -s "$repo_dir/development.env" "$source_repo/development.env"; then
-                        dev_env_updated=false
-                    fi
-                fi
-
-                if [ "$settings_exists" = true ] && [ -f "$source_repo/.claude/settings.local.json" ]; then
-                    if ! cmp -s "$repo_dir/.claude/settings.local.json" "$source_repo/.claude/settings.local.json"; then
-                        settings_updated=false
-                    fi
-                fi
-            fi
-
-            # Display status based on file state
-            if [ "$dev_env_exists" = false ] || [ "$settings_exists" = false ]; then
-                echo -e "${YELLOW}⚠${NC} $feature_name ${YELLOW}(missing config files)${NC}"
-            elif [ "$source_exists" = true ] && { [ "$dev_env_updated" = false ] || [ "$settings_updated" = false ]; }; then
-                echo -e "${YELLOW}🔄${NC} $feature_name ${YELLOW}(outdated - run update)${NC}"
-            else
-                echo -e "${GREEN}✓${NC} $feature_name"
-            fi
+        if [ ! -f "$worktree_dir/.git" ]; then
+            echo -e "${YELLOW}? $feature_name (not a worktree)${NC}"
+            continue
         fi
+
+        local branch
+        branch="$(cd "$worktree_dir" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+
+        local status
+        status="$(check_sync_status "$repo_root" "$worktree_dir")"
+
+        case "$status" in
+            missing)
+                echo -e "${YELLOW}!${NC} $feature_name ${YELLOW}(missing config files)${NC}  [$branch]"
+                ;;
+            outdated)
+                echo -e "${YELLOW}~${NC} $feature_name ${YELLOW}(outdated - run update)${NC}  [$branch]"
+                ;;
+            *)
+                echo -e "${GREEN}*${NC} $feature_name  [$branch]"
+                ;;
+        esac
     done
 
     if [ "$has_features" = false ]; then
-        echo -e "${YELLOW}No features found${NC}"
+        echo -e "${YELLOW}No features found.${NC}"
         echo ""
-        echo "Create your first feature with: alpha-5 add <feature-name>"
+        echo "Create one with: a5 add <prefix>:<name>"
     else
         echo ""
         echo -e "${CYAN}Total: $count feature(s)${NC}"
-        if [ "$source_exists" = false ]; then
-            echo ""
-            echo -e "${YELLOW}⚠️  Source repository not found at $source_repo${NC}"
-            echo -e "${YELLOW}   Cannot check if features are up to date${NC}"
-        fi
     fi
     echo ""
 }
 
-# Function to update a feature
+# ─── Update Feature ──────────────────────────────────────────────────────────
+
 update_feature() {
-    local feature_name="$1"
-    
-    if [ -z "$feature_name" ]; then
-        echo -e "${RED}❌ ERROR: Feature name is required${NC}"
+    local input="$1"
+
+    if [ -z "$input" ]; then
+        echo -e "${RED}ERROR: Feature name is required${NC}"
         echo ""
-        echo "Usage: alpha-5 update <feature-name>"
-        echo ""
-        echo "Run 'alpha-5 list' to see all features."
+        echo "Usage: a5 update <prefix>:<name>"
         exit 1
     fi
-    
-    # Check if update script exists
-    if [ ! -f "$UPDATE_SCRIPT" ]; then
-        echo -e "${RED}❌ ERROR: Update script not found at $UPDATE_SCRIPT${NC}"
+
+    require_repo
+
+    local repo_root
+    repo_root="$(get_repo_root)"
+    local features_path
+    features_path="$(get_features_path)"
+    local worktree_path="$features_path/$input"
+
+    if [ ! -d "$worktree_path" ]; then
+        echo -e "${RED}ERROR: Feature '$input' does not exist${NC}"
+        echo ""
+        echo "Run 'a5 list' to see all features."
         exit 1
     fi
-    
-    # Execute the update script
-    bash "$UPDATE_SCRIPT" "$feature_name"
+
+    echo ""
+    echo "Updating feature: $input"
+
+    sync_files_to_worktree "$repo_root" "$worktree_path"
+
+    echo ""
+    echo -e "${GREEN}Feature '$input' updated.${NC}"
+    echo ""
 }
 
-# Function to delete a feature
+# ─── Update All Features ─────────────────────────────────────────────────────
+
+update_all_features() {
+    require_repo
+
+    local repo_root
+    repo_root="$(get_repo_root)"
+    local features_path
+    features_path="$(get_features_path)"
+
+    echo ""
+    echo -e "${CYAN}Updating all features...${NC}"
+    echo ""
+
+    if [ ! -d "$features_path" ]; then
+        echo -e "${YELLOW}No features directory found.${NC}"
+        echo ""
+        echo "Create a feature first with: a5 add <prefix>:<name>"
+        return 0
+    fi
+
+    local total=0
+    local updated=0
+    local skipped=0
+
+    for worktree_dir in "$features_path"/*/; do
+        [ -d "$worktree_dir" ] || continue
+        total=$((total + 1))
+
+        local feature_name
+        feature_name="$(basename "$worktree_dir")"
+
+        echo -e "${CYAN}Processing: $feature_name${NC}"
+
+        if [ ! -f "$worktree_dir/.git" ]; then
+            echo -e "${YELLOW}  Skipped (not a worktree)${NC}"
+            skipped=$((skipped + 1))
+            echo ""
+            continue
+        fi
+
+        sync_files_to_worktree "$repo_root" "$worktree_dir"
+        updated=$((updated + 1))
+        echo ""
+    done
+
+    echo "---"
+    echo -e "${CYAN}Update Summary${NC}"
+    echo -e "${CYAN}Total: $total  Updated: $updated  Skipped: $skipped${NC}"
+    echo ""
+}
+
+# ─── Delete Feature ──────────────────────────────────────────────────────────
+
 delete_feature() {
-    local feature_name="$1"
-    local features_path="${ALPHA5_FEATURES_PATH:-./features}"
-    
-    if [ -z "$feature_name" ]; then
-        echo -e "${RED}❌ ERROR: Feature name is required${NC}"
+    local input="$1"
+
+    if [ -z "$input" ]; then
+        echo -e "${RED}ERROR: Feature name is required${NC}"
         echo ""
-        echo "Usage: alpha-5 delete <feature-name>"
-        echo ""
-        echo "Run 'alpha-5 list' to see all features."
+        echo "Usage: a5 delete <prefix>:<name>"
         exit 1
     fi
-    
-    local feature_dir="$features_path/$feature_name"
-    
-    # Check if feature exists
-    if [ ! -d "$feature_dir" ]; then
-        echo -e "${RED}❌ ERROR: Feature '$feature_name' does not exist${NC}"
+
+    require_repo
+
+    local repo_root
+    repo_root="$(get_repo_root)"
+    local features_path
+    features_path="$(get_features_path)"
+    local worktree_path="$features_path/$input"
+
+    if [ ! -d "$worktree_path" ]; then
+        echo -e "${RED}ERROR: Feature '$input' does not exist${NC}"
         echo ""
-        echo "Run 'alpha-5 list' to see all features."
+        echo "Run 'a5 list' to see all features."
         exit 1
     fi
-    
-    # Show feature details
+
+    # Get the branch from the worktree itself
+    local branch_name
+    branch_name="$(cd "$worktree_path" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+
     echo ""
-    echo -e "${YELLOW}⚠️  WARNING: You are about to delete the following feature:${NC}"
+    echo -e "${YELLOW}WARNING: You are about to delete:${NC}"
     echo ""
-    echo -e "${CYAN}Feature name:${NC} $feature_name"
-    echo -e "${CYAN}Location:${NC} $feature_dir"
-    
-    # Check size
-    if command -v du &> /dev/null; then
-        local size=$(du -sh "$feature_dir" 2>/dev/null | cut -f1)
-        echo -e "${CYAN}Size:${NC} $size"
+    echo -e "${CYAN}Feature:${NC}  $input"
+    echo -e "${CYAN}Path:${NC}     $worktree_path"
+    if [ -n "$branch_name" ]; then
+        echo -e "${CYAN}Branch:${NC}   $branch_name"
     fi
-    
+
+    if command -v du &>/dev/null; then
+        local size
+        size=$(du -sh "$worktree_path" 2>/dev/null | cut -f1)
+        echo -e "${CYAN}Size:${NC}     $size"
+    fi
+
     echo ""
     echo -e "${RED}This action cannot be undone!${NC}"
     echo ""
-    
-    # Confirmation prompt
-    read -p "Are you sure you want to delete '$feature_name'? (yes/no): " confirmation
-    
+
+    read -p "Delete '$input'? (yes/no): " confirmation
+
     case "$confirmation" in
         yes|YES|Yes)
             echo ""
-            echo -e "${YELLOW}Deleting feature '$feature_name'...${NC}"
-            
-            if rm -rf "$feature_dir"; then
-                echo -e "${GREEN}✅ SUCCESS: Feature '$feature_name' has been deleted${NC}"
-                echo ""
+            echo "Removing worktree..."
+
+            if git worktree remove "$worktree_path" --force 2>&1; then
+                echo -e "${GREEN}Worktree removed.${NC}"
             else
-                echo -e "${RED}❌ FAIL: Failed to delete feature '$feature_name'${NC}"
-                echo ""
-                exit 1
+                rm -rf "$worktree_path"
+                git worktree prune
+                echo -e "${GREEN}Worktree removed (manual cleanup).${NC}"
             fi
+
+            if [ -n "$branch_name" ]; then
+                if git branch -d "$branch_name" 2>/dev/null; then
+                    echo -e "${GREEN}Branch '$branch_name' deleted.${NC}"
+                elif git branch -D "$branch_name" 2>/dev/null; then
+                    echo -e "${YELLOW}Branch '$branch_name' force-deleted (had unmerged changes).${NC}"
+                else
+                    echo -e "${YELLOW}Branch '$branch_name' not found or already deleted.${NC}"
+                fi
+            fi
+
+            echo ""
+            echo -e "${GREEN}Feature '$input' deleted.${NC}"
+            echo ""
             ;;
         *)
             echo ""
-            echo -e "${CYAN}ℹ️  Deletion cancelled. Feature '$feature_name' was not deleted.${NC}"
+            echo "Cancelled. Feature '$input' was not deleted."
             echo ""
-            exit 0
             ;;
     esac
 }
 
-# Function to show git status of a feature
+# ─── Status ───────────────────────────────────────────────────────────────────
+
 show_status() {
-    local feature_name="$1"
-    local features_path="${ALPHA5_FEATURES_PATH:-./features}"
+    local input="$1"
 
-    if [ -z "$feature_name" ]; then
-        echo -e "${RED}❌ ERROR: Feature name is required${NC}"
+    if [ -z "$input" ]; then
+        echo -e "${RED}ERROR: Feature name is required${NC}"
         echo ""
-        echo "Usage: alpha-5 status <feature-name>"
-        echo ""
-        echo "Run 'alpha-5 list' to see all features."
+        echo "Usage: a5 status <prefix>:<name>"
         exit 1
     fi
 
-    local feature_dir="$features_path/$feature_name"
-    local repo_dir="$feature_dir/infinite-lending"
+    require_repo
 
-    # Check if feature exists
-    if [ ! -d "$feature_dir" ]; then
-        echo -e "${RED}❌ ERROR: Feature '$feature_name' does not exist${NC}"
+    local features_path
+    features_path="$(get_features_path)"
+    local worktree_path="$features_path/$input"
+
+    if [ ! -d "$worktree_path" ]; then
+        echo -e "${RED}ERROR: Feature '$input' does not exist${NC}"
         echo ""
-        echo "Run 'alpha-5 list' to see all features."
-        exit 1
-    fi
-
-    # Check if repository exists
-    if [ ! -d "$repo_dir" ]; then
-        echo -e "${RED}❌ ERROR: infinite-lending directory not found in feature '$feature_name'${NC}"
+        echo "Run 'a5 list' to see all features."
         exit 1
     fi
 
     echo ""
-    echo -e "${CYAN}📊 Git Status for: $feature_name${NC}"
-    echo -e "${CYAN}Repository: $repo_dir${NC}"
+    echo -e "${CYAN}Status for: $input${NC}"
+    echo -e "${CYAN}Path: $worktree_path${NC}"
     echo ""
 
-    # Run git status in the repository
-    (cd "$repo_dir" && git status)
+    (cd "$worktree_path" && git status)
 }
 
-# Function to print feature path
+# ─── Path ─────────────────────────────────────────────────────────────────────
+
 print_path() {
-    local feature_name="$1"
-    local features_path="${ALPHA5_FEATURES_PATH:-./features}"
+    local input="$1"
 
-    if [ -z "$feature_name" ]; then
-        echo -e "${RED}❌ ERROR: Feature name is required${NC}"
-        echo ""
-        echo "Usage: alpha-5 path <feature-name>"
-        echo ""
-        echo "Run 'alpha-5 list' to see all features."
-        exit 1
-    fi
-
-    local feature_dir="$features_path/$feature_name"
-
-    # Check if feature exists
-    if [ ! -d "$feature_dir" ]; then
-        echo -e "${RED}❌ ERROR: Feature '$feature_name' does not exist${NC}" >&2
+    if [ -z "$input" ]; then
+        echo -e "${RED}ERROR: Feature name is required${NC}" >&2
         echo "" >&2
-        echo "Run 'alpha-5 list' to see all features." >&2
+        echo "Usage: a5 path <prefix>:<name>" >&2
         exit 1
     fi
 
-    # Print the absolute path
-    echo "$(cd "$feature_dir" && pwd)"
+    require_repo
+
+    local features_path
+    features_path="$(get_features_path)"
+    local worktree_path="$features_path/$input"
+
+    if [ ! -d "$worktree_path" ]; then
+        echo -e "${RED}ERROR: Feature '$input' does not exist${NC}" >&2
+        echo "" >&2
+        echo "Run 'a5 list' to see all features." >&2
+        exit 1
+    fi
+
+    echo "$(cd "$worktree_path" && pwd)"
 }
 
-# Function to open a feature (print path to infinite-lending repository)
+# ─── Open ─────────────────────────────────────────────────────────────────────
+
 open_feature() {
-    local feature_name="$1"
-    local features_path="${ALPHA5_FEATURES_PATH:-./features}"
+    local input="$1"
 
-    if [ -z "$feature_name" ]; then
-        echo -e "${RED}❌ ERROR: Feature name is required${NC}" >&2
+    if [ -z "$input" ]; then
+        echo -e "${RED}ERROR: Feature name is required${NC}" >&2
         echo "" >&2
-        echo "Usage: alpha-5 open <feature-name>" >&2
-        echo "" >&2
-        echo "Run 'alpha-5 list' to see all features." >&2
+        echo "Usage: a5 open <prefix>:<name>" >&2
         exit 1
     fi
 
-    local feature_dir="$features_path/$feature_name"
-    local repo_dir="$feature_dir/infinite-lending"
+    require_repo
 
-    # Check if feature exists
-    if [ ! -d "$feature_dir" ]; then
-        echo -e "${RED}❌ ERROR: Feature '$feature_name' does not exist${NC}" >&2
+    local features_path
+    features_path="$(get_features_path)"
+    local worktree_path="$features_path/$input"
+
+    if [ ! -d "$worktree_path" ]; then
+        echo -e "${RED}ERROR: Feature '$input' does not exist${NC}" >&2
         echo "" >&2
-        echo "Run 'alpha-5 list' to see all features." >&2
+        echo "Run 'a5 list' to see all features." >&2
         exit 1
     fi
 
-    # Check if repository exists
-    if [ ! -d "$repo_dir" ]; then
-        echo -e "${RED}❌ ERROR: infinite-lending directory not found in feature '$feature_name'${NC}" >&2
-        exit 1
-    fi
-
-    # Print the absolute path to infinite-lending repository
-    echo "$(cd "$repo_dir" && pwd)"
+    echo "$(cd "$worktree_path" && pwd)"
 }
 
-# Function to update all features
-update_all_features() {
-    local features_path="${ALPHA5_FEATURES_PATH:-./features}"
+# ─── Main Command Router ─────────────────────────────────────────────────────
 
-    echo ""
-    echo -e "${CYAN}🔄 Updating all features...${NC}"
-    echo ""
-
-    # Check if features directory exists
-    if [ ! -d "$features_path" ]; then
-        echo -e "${YELLOW}⚠️  Features directory does not exist yet${NC}"
-        echo ""
-        echo "Create your first feature with: alpha-5 add <feature-name>"
-        exit 0
-    fi
-
-    # Source directory for config files
-    local source_repo="$HOME/projects/repos/infinite-lending"
-
-    # Verify source repository exists
-    if [ ! -d "$source_repo" ]; then
-        echo -e "${RED}❌ FAIL: Source repository not found at $source_repo${NC}"
-        echo "Please ensure the repository exists at this location"
-        exit 1
-    fi
-
-    # Count features
-    local total=0
-    local updated=0
-    local failed=0
-    local skipped=0
-
-    # Iterate through all features
-    for feature_dir in "$features_path"/*/ ; do
-        if [ -d "$feature_dir" ]; then
-            total=$((total + 1))
-            local feature_name=$(basename "$feature_dir")
-            local repo_dir="$feature_dir/infinite-lending"
-
-            echo -e "${CYAN}Processing: $feature_name${NC}"
-
-            # Check if infinite-lending directory exists
-            if [ ! -d "$repo_dir" ]; then
-                echo -e "${YELLOW}  ⚠ Skipped (missing infinite-lending directory)${NC}"
-                skipped=$((skipped + 1))
-                echo ""
-                continue
-            fi
-
-            # Update development.env
-            local env_updated=false
-            local settings_updated=false
-
-            if [ -f "$source_repo/development.env" ]; then
-                if cp "$source_repo/development.env" "$repo_dir/development.env" 2>/dev/null; then
-                    env_updated=true
-                fi
-            fi
-
-            # Update .claude/settings.local.json
-            mkdir -p "$repo_dir/.claude"
-            if [ -f "$source_repo/.claude/settings.local.json" ]; then
-                if cp "$source_repo/.claude/settings.local.json" "$repo_dir/.claude/settings.local.json" 2>/dev/null; then
-                    settings_updated=true
-                fi
-            fi
-
-            if [ "$env_updated" = true ] && [ "$settings_updated" = true ]; then
-                echo -e "${GREEN}  ✓ Updated successfully${NC}"
-                updated=$((updated + 1))
-            elif [ "$env_updated" = true ] || [ "$settings_updated" = true ]; then
-                echo -e "${YELLOW}  ⚠ Partially updated${NC}"
-                updated=$((updated + 1))
-            else
-                echo -e "${RED}  ✗ Failed to update${NC}"
-                failed=$((failed + 1))
-            fi
-            echo ""
-        fi
-    done
-
-    # Summary
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}📊 Update Summary${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}Total features:${NC} $total"
-    echo -e "${GREEN}Updated:${NC} $updated"
-    if [ $skipped -gt 0 ]; then
-        echo -e "${YELLOW}Skipped:${NC} $skipped"
-    fi
-    if [ $failed -gt 0 ]; then
-        echo -e "${RED}Failed:${NC} $failed"
-    fi
-    echo ""
-
-    if [ $updated -gt 0 ]; then
-        echo -e "${GREEN}🎉 Update completed!${NC}"
-    else
-        echo -e "${YELLOW}⚠️  No features were updated${NC}"
-    fi
-    echo ""
-}
-
-# Main command router
 main() {
     local command="$1"
-    
-    # If no command provided, show help
+
     if [ -z "$command" ]; then
         show_help
         exit 0
     fi
-    
+
     case "$command" in
         help|--help|-h)
             show_help
@@ -515,6 +669,9 @@ main() {
             shift
             update_feature "$@"
             ;;
+        update-all)
+            update_all_features
+            ;;
         delete|remove|rm)
             shift
             delete_feature "$@"
@@ -527,21 +684,17 @@ main() {
             shift
             print_path "$@"
             ;;
-        update-all)
-            update_all_features
-            ;;
         open)
             shift
             open_feature "$@"
             ;;
         *)
-            echo -e "${RED}❌ ERROR: Unknown command '$command'${NC}"
+            echo -e "${RED}ERROR: Unknown command '$command'${NC}"
             echo ""
-            echo "Run 'alpha-5 help' for usage information."
+            echo "Run 'a5 help' for usage information."
             exit 1
             ;;
     esac
 }
 
-# Run main function with all arguments
 main "$@"
