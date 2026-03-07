@@ -34,9 +34,10 @@ a5 add feat:new-button
 Alpha-5 uses **git worktrees** instead of full repository clones:
 
 - **Shared git history** — one `.git` object store, not N clones
-- **Instant setup** — no network clone, just a local checkout
+- **Always up to date** — `add` fetches from remote and branches from `origin/main`
 - **Less disk usage** — only working tree files are duplicated
 - **Branch safety** — git prevents the same branch from being checked out twice
+- **Works from anywhere** — run commands from the main repo or from inside any worktree
 
 ### Directory Structure
 
@@ -49,6 +50,8 @@ Alpha-5 uses **git worktrees** instead of full repository clones:
     └── chore:update-deps/            # Worktree (branch: chore/update-deps)
 ```
 
+The features directory is always a sibling to your repo, named `<repo-name>-features`.
+
 ---
 
 ## Installation
@@ -58,6 +61,12 @@ cd /path/to/alpha-5-cli
 ./install.sh
 source ~/.zshrc
 ```
+
+This adds the following to your `~/.zshrc`:
+- `a5` shell function (handles `open` and `add` with auto-cd)
+- `alpha-5` alias (points to `a5`)
+- `a5open` function (shortcut for `a5 open`)
+- `ALPHA5_HOME` environment variable
 
 ### Verify
 
@@ -70,7 +79,7 @@ a5 help
 
 ## Prefix Convention
 
-Every feature **requires a prefix** separated by `:`. The prefix becomes the branch directory:
+Every feature **requires a prefix** separated by `:`. The prefix maps to the git branch name:
 
 | Input | Branch Created |
 |-------|---------------|
@@ -87,7 +96,7 @@ Every feature **requires a prefix** separated by `:`. The prefix becomes the bra
 
 On `add`, `update`, and `update-all`, Alpha-5 automatically copies:
 
-- **All `*.env` files** from the repo root (e.g., `development.env`, `.env.local`)
+- **All `*.env` files** from the main repo root (e.g., `development.env`, `.env.local`)
 - **`~/.claude/settings.local.json`** into `.claude/settings.local.json` in the worktree
 
 No configuration file needed.
@@ -99,15 +108,25 @@ No configuration file needed.
 | Command | Aliases | Description |
 |---------|---------|-------------|
 | `a5 help` | `-h`, `--help` | Show help and current repo info |
-| `a5 add <prefix>:<name>` | `create` | Create a new feature worktree |
+| `a5 add <prefix>:<name>` | `create` | Fetch origin, branch from latest main, create worktree |
 | `a5 list` | `ls` | List all feature worktrees for this repo |
-| `a5 update <prefix>:<name>` | `sync` | Sync files to a feature |
+| `a5 update <prefix>:<name>` | `sync` | Sync env files and claude settings to a feature |
 | `a5 update-all` | — | Sync files to all features |
-| `a5 delete <prefix>:<name>` | `remove`, `rm` | Remove worktree and branch |
+| `a5 delete <prefix>:<name>` | `remove`, `rm` | Remove worktree and delete branch (with confirmation) |
 | `a5 status <prefix>:<name>` | `st` | Show git status of a feature |
 | `a5 path <prefix>:<name>` | — | Print absolute path to a feature |
 | `a5 open <prefix>:<name>` | — | Navigate (cd) into a feature worktree |
 | `a5 version` | `-v`, `--version` | Show CLI version |
+
+### What `add` does
+
+1. Runs `git fetch origin` to get the latest remote state
+2. Detects the default remote branch (usually `main`)
+3. Creates a worktree at `<repo>-features/<prefix>:<name>/`
+4. Creates branch `<prefix>/<name>` based on `origin/main`
+5. Copies all `*.env` files from the repo root
+6. Copies `~/.claude/settings.local.json`
+7. Auto-navigates you into the worktree
 
 ### Examples
 
@@ -123,6 +142,8 @@ a5 list
 # Switch between features
 a5 open feat:payment-processing
 a5 open fix:auth-timeout
+# or use the shortcut
+a5open feat:payment-processing
 
 # Check status without navigating
 a5 status feat:payment-processing
@@ -133,6 +154,20 @@ a5 update-all
 
 # Clean up
 a5 delete chore:bump-dependencies
+```
+
+### Works from inside worktrees
+
+All commands work whether you're in the main repo or inside any worktree:
+
+```bash
+cd ~/projects/my-repo
+a5 list                          # works
+
+a5 open feat:payment-processing
+# now inside ~/projects/my-repo-features/feat:payment-processing/
+a5 list                          # still works, same output
+a5 add fix:urgent-bug            # creates another worktree from here
 ```
 
 ### Using with any repo
@@ -186,8 +221,17 @@ A: In `<repo-name>-features/` next to your repo. E.g., `~/projects/my-app-featur
 **Q: What files get synced?**
 A: All `*.env` files from the repo root and `~/.claude/settings.local.json`. No config file needed.
 
+**Q: Does `add` use the latest remote code?**
+A: Yes. It runs `git fetch origin` and branches from `origin/main` (or whichever is the default remote branch).
+
+**Q: Can I run commands from inside a worktree?**
+A: Yes. Alpha-5 detects the main repo automatically, so `a5 list`, `a5 add`, etc. all work from any worktree.
+
 **Q: What happens when I delete a feature?**
-A: The worktree directory is removed and the branch is deleted. Confirmation required.
+A: The worktree directory is removed and the branch is deleted. Confirmation is required.
+
+**Q: What prefixes can I use?**
+A: `feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `ci`, `perf`.
 
 ---
 
