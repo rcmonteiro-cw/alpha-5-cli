@@ -282,8 +282,21 @@ create_feature() {
     echo "Setting up feature: $input"
     echo ""
 
+    # Fetch latest and detect the default remote branch
+    echo "Fetching latest from remote..."
+    git -C "$repo_root" fetch origin 2>&1
+
+    local default_branch
+    default_branch="$(git -C "$repo_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+    if [ -z "$default_branch" ]; then
+        default_branch="main"
+    fi
+
+    echo "Branching from origin/$default_branch"
+    echo ""
+
     echo "Creating worktree..."
-    if git worktree add "$worktree_path" -b "$branch_name" 2>&1; then
+    if git -C "$repo_root" worktree add "$worktree_path" -b "$branch_name" "origin/$default_branch" 2>&1; then
         echo -e "${GREEN}Created worktree at $worktree_path${NC}"
         echo -e "${GREEN}Branch: $branch_name${NC}"
     else
