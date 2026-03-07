@@ -206,7 +206,7 @@ git worktree remove <path>
 | Requirement | Version | Notes |
 |-------------|---------|-------|
 | Git | 2.17+ | For `worktree add` and `worktree remove` |
-| Shell | zsh | bash supported with installer modifications |
+| Shell | zsh, bash, or fish | Auto-detected by the installer |
 
 ---
 
